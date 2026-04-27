@@ -224,7 +224,7 @@ async def setup_webhook(
     if not access_token:
         raise HTTPException(status_code=401, detail=f"No {repo.platform.value} account connected")
 
-    webhook_url = f"{settings.frontend_url.replace('3000', '8000')}/api/webhooks/{repo.platform.value}"
+    webhook_url = f"{settings.backend_url}/api/webhooks/{repo.platform.value}"
 
     try:
         if repo.platform == Platform.GITHUB:

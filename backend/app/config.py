@@ -47,9 +47,23 @@ class Settings(BaseSettings):
     # Frontend
     frontend_url: str = "http://localhost:3000"
 
+    # Backend public URL (used for webhook registration)
+    backend_url: str = "http://localhost:8000"
+
     # PR Collection
     pr_collection_days: int = 90  # collect PRs from last N days
     pr_min_review_comments: int = 2  # minimum review comments for "quality" PR
+    pr_max_diff_chars: int = 50000  # max chars to store for diff content
+
+    def model_post_init(self, __context: object) -> None:
+        """Validate critical settings."""
+        if not self.debug and self.secret_key == "change-me-in-production":
+            import warnings
+            warnings.warn(
+                "SECRET_KEY is set to the default insecure value. "
+                "Please set a strong SECRET_KEY in production.",
+                stacklevel=2,
+            )
 
     class Config:
         env_file = ".env"

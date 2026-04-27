@@ -17,15 +17,39 @@ import structlog
 logger = structlog.get_logger()
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# In-memory state store (use Redis in production)
+# OAuth state store.
+# NOTE: In-memory storage is sufficient for single-instance development.
+# For production with multiple server instances, replace with a Redis-backed store
+# using the REDIS_URL from settings (e.g., via aioredis with a short TTL).
 _state_store: dict = {}
+_STATE_TTL_SECONDS = 600  # 10 minutes
+
+
+def _store_state(state: str, platform: str) -> None:
+    import time
+    # Evict expired states to prevent unbounded growth
+    now = time.time()
+    expired = [k for k, v in _state_store.items() if now - v["ts"] > _STATE_TTL_SECONDS]
+    for k in expired:
+        del _state_store[k]
+    _state_store[state] = {"platform": platform, "ts": now}
+
+
+def _consume_state(state: str) -> bool:
+    import time
+    entry = _state_store.pop(state, None)
+    if not entry:
+        return False
+    if time.time() - entry["ts"] > _STATE_TTL_SECONDS:
+        return False
+    return True
 
 
 @router.get("/github/url")
 async def github_oauth_url():
     """Get GitHub OAuth authorization URL."""
     state = secrets.token_urlsafe(32)
-    _state_store[state] = "github"
+    _store_state(state, "github")
     url = github_svc.get_oauth_url(state)
     return {"url": url, "state": state}
 
@@ -37,9 +61,8 @@ async def github_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle GitHub OAuth callback, create/update user."""
-    if state not in _state_store:
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
-    del _state_store[state]
+    if not _consume_state(state):
+        raise HTTPException(status_code=400, detail="Invalid or expired state parameter")
 
     # Exchange code for token
     try:
@@ -119,7 +142,7 @@ async def github_callback(
 async def gitlab_oauth_url():
     """Get GitLab OAuth authorization URL."""
     state = secrets.token_urlsafe(32)
-    _state_store[state] = "gitlab"
+    _store_state(state, "gitlab")
     url = gitlab_svc.get_oauth_url(state)
     return {"url": url, "state": state}
 
@@ -131,9 +154,8 @@ async def gitlab_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle GitLab OAuth callback, create/update user."""
-    if state not in _state_store:
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
-    del _state_store[state]
+    if not _consume_state(state):
+        raise HTTPException(status_code=400, detail="Invalid or expired state parameter")
 
     try:
         token_data = await gitlab_svc.exchange_code_for_token(code)

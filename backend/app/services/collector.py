@@ -13,6 +13,7 @@ from app.models import (
 )
 from app.services.github import GitHubClient
 from app.services.gitlab import GitLabClient
+from app.config import settings
 from app.services import llm as llm_service
 import structlog
 
@@ -231,7 +232,7 @@ async def collect_github_prs(
                     head_branch=pr_detail.get("head", {}).get("ref", ""),
                     base_sha=pr_detail.get("base", {}).get("sha"),
                     head_sha=pr_detail.get("head", {}).get("sha"),
-                    diff_content=diff_content[:50000] if diff_content else None,
+                    diff_content=diff_content[:settings.pr_max_diff_chars] if diff_content else None,
                     files_changed=[
                         {"filename": f.get("filename"), "additions": f.get("additions", 0),
                          "deletions": f.get("deletions", 0), "status": f.get("status", "")}
@@ -485,7 +486,7 @@ async def collect_gitlab_mrs(
                     status=PRStatus.MERGED,
                     base_branch=mr_data.get("target_branch", "main"),
                     head_branch=mr_data.get("source_branch", ""),
-                    diff_content=diff_content[:50000],
+                    diff_content=diff_content[:settings.pr_max_diff_chars],
                     files_changed=[
                         {"filename": c.get("new_path", c.get("old_path", "")),
                          "additions": 0, "deletions": 0, "status": "modified"}
@@ -510,7 +511,7 @@ async def collect_gitlab_mrs(
                     for note in discussion.get("notes", []):
                         position = note.get("position") or {}
                         context_before, context_after = _extract_context_from_hunk(
-                            position.get("line_range", {}).get("start", {}).get("old_line", ""),
+                            note.get("diff_hunk", ""),
                             note.get("body", ""),
                         )
                         comment = ReviewComment(

@@ -139,7 +139,7 @@ async def github_webhook(
                     head_branch=head_branch,
                     base_sha=base_sha,
                     head_sha=head_sha,
-                    diff_content=diff_content[:50000],
+                    diff_content=diff_content[:settings.pr_max_diff_chars],
                     files_changed=[
                         {"filename": f.get("filename"), "additions": f.get("additions", 0),
                          "deletions": f.get("deletions", 0)}
@@ -155,7 +155,7 @@ async def github_webhook(
                 session.add(pr)
                 await session.flush()
             else:
-                pr.diff_content = diff_content[:50000]
+                pr.diff_content = diff_content[:settings.pr_max_diff_chars]
                 pr.head_sha = head_sha
                 pr.files_changed = [
                     {"filename": f.get("filename"), "additions": f.get("additions", 0),
@@ -292,7 +292,7 @@ async def gitlab_webhook(
                     base_branch=base_branch,
                     head_branch=head_branch,
                     head_sha=head_sha,
-                    diff_content=diff_content[:50000],
+                    diff_content=diff_content[:settings.pr_max_diff_chars],
                     files_changed=[
                         {"filename": c.get("new_path", c.get("old_path", "")), "additions": 0, "deletions": 0}
                         for c in changes[:100]
@@ -303,7 +303,7 @@ async def gitlab_webhook(
                 session.add(pr)
                 await session.flush()
             else:
-                pr.diff_content = diff_content[:50000]
+                pr.diff_content = diff_content[:settings.pr_max_diff_chars]
                 pr.head_sha = head_sha
 
             await session.commit()
