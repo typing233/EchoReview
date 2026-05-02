@@ -79,3 +79,42 @@ export const knowledgeApi = {
   summary: (repoId: number) =>
     api.get(`/knowledge/${repoId}/stats/summary`),
 };
+
+// IDE Plugin API
+export const ideApi = {
+  getLLMConfig: () => api.get("/ide/llm/config"),
+  updateLLMConfig: (data: {
+    base_url?: string;
+    api_key?: string;
+    model_name?: string;
+    provider?: string;
+  }) => api.put("/ide/llm/config", data),
+  testLLMConnection: (data: {
+    base_url: string;
+    api_key: string;
+    model_name: string;
+    provider?: string;
+  }) => api.post("/ide/llm/test", data),
+  syncCodeStandards: (repoId: number, lastSyncAt?: string) =>
+    api.get(`/ide/sync/code_standards?repo_id=${repoId}${lastSyncAt ? `&last_sync_at=${encodeURIComponent(lastSyncAt)}` : ""}`),
+  getHighFrequencyStandards: (repoId: number, limit?: number) =>
+    api.get(`/ide/sync/high_frequency?repo_id=${repoId}&limit=${limit || 20}`),
+  runPreReview: (data: {
+    repo_id: number;
+    files: Array<{
+      filename: string;
+      path?: string;
+      additions?: number;
+      deletions?: number;
+      diff?: string;
+    }>;
+    diff_content?: string;
+    branch?: string;
+  }) => api.post("/ide/pre-review", data),
+};
+
+// Dialectic Logic Detection
+export const dialecticApi = {
+  runCheck: (repoId: number, prNumber: number) =>
+    api.get(`/dialectic/check/${repoId}/${prNumber}`),
+};

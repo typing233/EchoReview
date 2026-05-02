@@ -5,7 +5,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import structlog
 from app.config import settings
 from app.database import init_db
-from app.api import auth, repositories, prs, knowledge, webhooks
+from app.api import auth, repositories, prs, knowledge, webhooks, ide, dialectic
 
 logger = structlog.get_logger()
 
@@ -39,6 +39,8 @@ app.include_router(repositories.router, prefix="/api")
 app.include_router(prs.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
+app.include_router(ide.router, prefix="/api")
+app.include_router(dialectic.router, prefix="/api")
 
 
 @app.get("/health")

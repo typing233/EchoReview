@@ -18,6 +18,7 @@ import {
   ChevronRight,
   BarChart3,
   Clock,
+  Settings,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { formatDistanceToNow } from "date-fns";
@@ -127,6 +128,13 @@ export default function DashboardPage() {
           <span className="text-xl font-bold">EchoReview</span>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => router.push("/settings")}
+            className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
           <div className="flex items-center gap-2">
             {user.avatar_url && (
               <img src={user.avatar_url} alt="avatar" className="w-8 h-8 rounded-full" />
