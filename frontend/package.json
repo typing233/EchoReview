@@ -30,7 +30,9 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "date-fns": "^4.1.0",
     "zustand": "^5.0.2",
-    "react-hot-toast": "^2.4.1"
+    "react-hot-toast": "^2.4.1",
+    "three": "^0.160.0",
+    "@types/three": "^0.160.0"
   },
   "devDependencies": {
     "typescript": "^5",

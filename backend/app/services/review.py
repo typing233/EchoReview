@@ -123,6 +123,76 @@ async def _get_relevant_knowledge(
     return selected
 
 
+def _enrich_review_with_dialectic_conflicts(
+    review_result: Dict[str, Any],
+    dialectic_result,
+) -> Dict[str, Any]:
+    """
+    Enrich the AI review result with dialectic logic conflict information.
+    This modifies the review summary and key concerns to include conflict detection.
+    """
+    conflicts = dialectic_result.conflicts
+    overall_risk = dialectic_result.overall_risk
+
+    if not conflicts:
+        return review_result
+
+    conflict_summary = []
+    for conflict in conflicts[:5]:
+        severity_icon = {
+            "critical": "🔴",
+            "high": "🟠",
+            "medium": "🟡",
+            "low": "⚪",
+        }.get(conflict.severity, "⚪")
+        conflict_summary.append(
+            f"{severity_icon} [{conflict.severity.upper()}] {conflict.title} "
+            f"(confidence: {(conflict.confidence_score * 100):.0f}%)"
+        )
+
+    existing_summary = review_result.get("summary", "")
+    new_summary = (
+        f"## 🧩 Dialectic Logic Analysis (Risk: {overall_risk.upper()})\n\n"
+        + "Detected potential architectural conflicts with historical team decisions:\n"
+        + "\n".join(conflict_summary)
+        + "\n\n---\n\n"
+        + existing_summary
+    )
+    review_result["summary"] = new_summary
+
+    existing_key_concerns = review_result.get("key_concerns", [])
+    dialectic_concerns = [
+        f"[ARCHITECTURAL CONFLICT] {c.title} - See historical dispute ID: {c.historical_refs[0].get('dispute_id') if c.historical_refs else 'N/A'}"
+        for c in conflicts
+        if c.severity in ["critical", "high"]
+    ]
+    review_result["key_concerns"] = dialectic_concerns + existing_key_concerns
+
+    if overall_risk in ["critical", "high"] and review_result.get("overall_assessment") == "LGTM":
+        review_result["overall_assessment"] = "NEEDS_CHANGES"
+    elif overall_risk == "medium" and review_result.get("overall_assessment") == "LGTM":
+        review_result["overall_assessment"] = "APPROVE_WITH_SUGGESTIONS"
+
+    conflict_comments = []
+    for conflict in conflicts:
+        conflict_comments.append({
+            "file_path": conflict.current_pr_context.get("files_changed", ["(global)"])[0] if conflict.current_pr_context.get("files_changed") else "(global)",
+            "line_number": None,
+            "severity": "error" if conflict.severity in ["critical", "high"] else "warning",
+            "category": "dialectic_logic",
+            "body": f"**Potential Architectural Conflict Detected**\n\n{conflict.description}\n\n**Suggested Resolution:**\n{conflict.suggested_resolution or 'Review historical team decisions and document any intentional deviations.'}",
+            "context_explanation": f"This pattern was previously debated in {conflict.historical_refs[0].get('occurrence_count', 1)} historical PR(s).",
+            "suggested_fix": None,
+            "related_knowledge_ids": [ref.get("dispute_id") for ref in conflict.historical_refs],
+            "similar_pr_numbers": [],
+        })
+
+    existing_comments = review_result.get("comments", [])
+    review_result["comments"] = conflict_comments + existing_comments
+
+    return review_result
+
+
 async def run_ai_review(
     db: AsyncSession,
     session: AIReviewSession,
@@ -132,15 +202,22 @@ async def run_ai_review(
 ) -> None:
     """
     Execute the full AI review pipeline:
-    1. Gather context (knowledge, similar PRs)
-    2. Generate review comments via LLM
-    3. Post comments to GitHub/GitLab
+    1. Run dialectic logic detection (check against historical disputes)
+    2. Gather context (knowledge, similar PRs)
+    3. Generate review comments via LLM
+    4. Post comments to GitHub/GitLab
     """
     try:
         session.status = ReviewStatus.IN_PROGRESS
         await db.commit()
 
-        # Get relevant knowledge items
+        from app.api.dialectic import run_dialectic_check_in_background
+        dialectic_result = await run_dialectic_check_in_background(
+            db=db,
+            pr=pr,
+            repository=repository,
+        )
+
         knowledge_items = await _get_relevant_knowledge(
             db,
             repository.id,
@@ -148,10 +225,8 @@ async def run_ai_review(
             pr.files_changed or [],
         )
 
-        # Find similar PRs
         similar_prs = await _get_similar_prs(db, repository.id, pr.diff_content or "")
 
-        # Generate AI review
         review_result = await llm_service.generate_pr_review(
             pr_title=pr.title,
             pr_description=pr.description or "",
@@ -161,10 +236,14 @@ async def run_ai_review(
             similar_prs=similar_prs,
         )
 
-        # Format comments for storage
+        if dialectic_result and dialectic_result.conflicts:
+            review_result = _enrich_review_with_dialectic_conflicts(
+                review_result=review_result,
+                dialectic_result=dialectic_result,
+            )
+
         ai_comments = review_result.get("comments", [])
 
-        # Enrich comments with knowledge IDs and similar PR refs
         for comment in ai_comments:
             comment.setdefault("related_knowledge_ids", [])
             comment.setdefault("similar_pr_numbers", [])
@@ -175,7 +254,34 @@ async def run_ai_review(
         session.knowledge_items_used = [{"id": k.get("id"), "title": k.get("title")} for k in knowledge_items]
         session.similar_prs = similar_prs
 
-        # Post to platform
+        if dialectic_result:
+            dialectic_analysis = {
+                "overall_risk": dialectic_result.overall_risk,
+                "conflict_count": len(dialectic_result.conflicts),
+                "summary": dialectic_result.summary,
+                "conflicts": [
+                    {
+                        "conflict_type": c.conflict_type,
+                        "severity": c.severity,
+                        "title": c.title,
+                        "description": c.description,
+                        "confidence_score": c.confidence_score,
+                    }
+                    for c in dialectic_result.conflicts
+                ],
+            }
+            if session.ai_comments is None:
+                session.ai_comments = []
+            session.ai_comments.append({
+                "file_path": "(global)",
+                "line_number": None,
+                "severity": "error" if dialectic_result.overall_risk in ["critical", "high"] else "warning",
+                "category": "dialectic_logic",
+                "body": "Dialectic Logic Analysis detected potential architectural conflicts.",
+                "context_explanation": "This analysis compares your PR against historical team decisions and architectural disputes.",
+                "dialectic_analysis": dialectic_analysis,
+            })
+
         posted = False
         try:
             if repository.platform == Platform.GITHUB:
